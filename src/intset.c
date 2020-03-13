@@ -43,12 +43,13 @@
 
 /* Return the required encoding for the provided value. */
 static uint8_t _intsetValueEncoding(int64_t v) {
-    if (v < INT32_MIN || v > INT32_MAX)
+    if (v < INT32_MIN || v > INT32_MAX) {
         return INTSET_ENC_INT64;
-    else if (v < INT16_MIN || v > INT16_MAX)
+    } else if (v < INT16_MIN || v > INT16_MAX) {
         return INTSET_ENC_INT32;
-    else
+    } else {
         return INTSET_ENC_INT16;
+    }
 }
 
 /* Return the value at pos, given an encoding. */
@@ -96,7 +97,7 @@ static void _intsetSet(intset *is, int pos, int64_t value) {
 /* Create an empty intset. */
 intset *intsetNew(void) {
     intset *is = zmalloc(sizeof(intset));
-    is->encoding = intrev32ifbe(INTSET_ENC_INT16);
+    is->encoding = intrev32ifbe(INTSET_ENC_INT16);  // convert big endian to little endian.
     is->length = 0;
     return is;
 }
@@ -113,27 +114,48 @@ static intset *intsetResize(intset *is, uint32_t len) {
  * the value is not present in the intset and sets "pos" to the position
  * where "value" can be inserted. */
 static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
-    int min = 0, max = intrev32ifbe(is->length)-1, mid = -1;
+    int length = intrev32ifbe(is->length);
+    int min = 0, max = length - 1, mid = -1;
     int64_t cur = -1;
 
     /* The value can never be found when the set is empty */
-    if (intrev32ifbe(is->length) == 0) {
-        if (pos) *pos = 0;
+//    if (length == 0) {
+//        if (pos) *pos = 0;
+//        return 0;
+//    } else {
+//        /* Check for the case where we know we cannot find the value,
+//         * but do know the insert position. */
+//        if (value > _intsetGet(is,max)) {
+//            if (pos) *pos = length;
+//            return 0;
+//        } else if (value < _intsetGet(is,0)) {
+//            if (pos) *pos = 0;
+//            return 0;
+//        }
+//    }
+    // handle empty set
+    if (length == 0) {
+        if (pos) {
+            *pos = 0;
+        }
         return 0;
-    } else {
-        /* Check for the case where we know we cannot find the value,
-         * but do know the insert position. */
-        if (value > _intsetGet(is,max)) {
-            if (pos) *pos = intrev32ifbe(is->length);
-            return 0;
-        } else if (value < _intsetGet(is,0)) {
-            if (pos) *pos = 0;
+    }
+    // value out of intset
+    if (value > _intsetGet(is, max)) {
+        if (pos) {
+            *pos = length;
             return 0;
         }
+    } else if (value < _intsetGet(is, 0)) {
+        if (pos) {
+            *pos = 0;
+        }
+        return 0;
     }
 
     while(max >= min) {
-        mid = ((unsigned int)min + (unsigned int)max) >> 1;
+        mid = min + ((max - min) >> 2);
+        // mid = ((unsigned int)min + (unsigned int)max) >> 1;
         cur = _intsetGet(is,mid);
         if (value > cur) {
             min = mid+1;
@@ -145,10 +167,14 @@ static uint8_t intsetSearch(intset *is, int64_t value, uint32_t *pos) {
     }
 
     if (value == cur) {
-        if (pos) *pos = mid;
+        if (pos) {
+            *pos = mid;
+        }
         return 1;
     } else {
-        if (pos) *pos = min;
+        if (pos) {
+            *pos = min;
+        }
         return 0;
     }
 }
@@ -250,7 +276,9 @@ intset *intsetRemove(intset *is, int64_t value, int *success) {
     return is;
 }
 
-/* Determine whether a value belongs to this set */
+/* Determine whether a value belongs to this set
+ * if valenc > istrev32ifbe, that must not in the set, because it's encoding
+ * size is longer, othewise search the intset is.*/
 uint8_t intsetFind(intset *is, int64_t value) {
     uint8_t valenc = _intsetValueEncoding(value);
     return valenc <= intrev32ifbe(is->encoding) && intsetSearch(is,value,NULL);
